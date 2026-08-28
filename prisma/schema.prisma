@@ -1,0 +1,121 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum TransactionType {
+  DEPOSIT
+  TRANSFER_SENT
+  TRANSFER_RECEIVED
+  WITHDRAWAL
+}
+
+enum TransactionStatus {
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum TransferStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum NotificationType {
+  DEPOSIT
+  TRANSFER_SENT
+  TRANSFER_RECEIVED
+  TRANSFER_FAILED
+}
+
+model User {
+  id            String         @id @default(uuid()) @db.Char(36)
+  name          String         @db.VarChar(100)
+  email         String         @unique @db.VarChar(255)
+  passwordHash  String         @db.VarChar(255)
+  role          Role           @default(USER)
+  tokenVersion  Int            @default(0)
+  wallet        Wallet?
+  notifications Notification[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+model Wallet {
+  id                String        @id @default(uuid()) @db.Char(36)
+  userId            String        @unique @db.Char(36)
+  balance           Decimal       @default(0) @db.Decimal(19, 2)
+  currency          String        @default("ARS") @db.Char(3)
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions      Transaction[]
+  sentTransfers     Transfer[]    @relation("senderWallet")
+  receivedTransfers Transfer[]    @relation("receiverWallet")
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([createdAt])
+}
+
+model Transaction {
+  id            String            @id @default(uuid()) @db.Char(36)
+  walletId      String            @db.Char(36)
+  transferId    String?           @db.Char(36)
+  type          TransactionType
+  amount        Decimal           @db.Decimal(19, 2)
+  balanceBefore Decimal           @db.Decimal(19, 2)
+  balanceAfter  Decimal           @db.Decimal(19, 2)
+  status        TransactionStatus @default(COMPLETED)
+  reference     String            @db.VarChar(100)
+  wallet        Wallet            @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  transfer      Transfer?         @relation(fields: [transferId], references: [id], onDelete: SetNull)
+  createdAt     DateTime          @default(now())
+
+  @@index([walletId, createdAt])
+  @@index([walletId, type, createdAt])
+  @@index([walletId, status, createdAt])
+  @@index([transferId])
+}
+
+model Transfer {
+  id              String         @id @default(uuid()) @db.Char(36)
+  senderWalletId  String         @db.Char(36)
+  receiverWalletId String        @db.Char(36)
+  amount          Decimal        @db.Decimal(19, 2)
+  status          TransferStatus @default(PENDING)
+  idempotencyKey  String         @db.VarChar(255)
+  failureReason   String?        @db.VarChar(500)
+  createdAt       DateTime       @default(now())
+  completedAt     DateTime?
+  senderWallet    Wallet         @relation("senderWallet", fields: [senderWalletId], references: [id], onDelete: Restrict)
+  receiverWallet  Wallet         @relation("receiverWallet", fields: [receiverWalletId], references: [id], onDelete: Restrict)
+  transactions    Transaction[]
+
+  @@unique([senderWalletId, idempotencyKey])
+  @@index([senderWalletId, createdAt])
+  @@index([receiverWalletId, createdAt])
+  @@index([status, createdAt])
+}
+
+model Notification {
+  id        String           @id @default(uuid()) @db.Char(36)
+  userId    String           @db.Char(36)
+  type      NotificationType
+  title     String           @db.VarChar(150)
+  message   String           @db.VarChar(500)
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read, createdAt])
+}
